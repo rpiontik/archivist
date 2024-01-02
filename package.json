@@ -1,18 +1,18 @@
 {
   "name": "archpkg",
-  "version": "1.0.2",
-  "description": "DocHub metamodel archive manager",
+  "version": "1.0.3",
+  "description": "The DocHub metamodel repository manager.",
   "private": false,
   "main": "index.js",
   "module": "index.js",
   "files": ["."],
   "homepage": "https://dochub.info",
   "bin": {
-    "archpkg": "index.js"
+    "archpkg": "cli/main.js"
   },
   "repository": "git+https://github.com/rpiontik/archpkg.git",
   "scripts": {
-    "start": "PUBLIC_URL=/ node index.js",
+    "start": "PUBLIC_URL=/ ",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
