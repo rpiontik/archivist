@@ -2,13 +2,22 @@
   "name": "archivist",
   "version": "1.0.0",
   "description": "DocHub metamodel archive manager",
+  "private": false,
   "main": "index.js",
+  "module": "index.js",
+  "files": ["."],
+  "homepage": "https://dochub.info",
+  "repository": "git+https://github.com/rpiontik/archivist.git",
   "scripts": {
+    "start": "PUBLIC_URL=/ node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
-    "DocHub"
+    "DocHub",
+    "AaaC",
+    "Metamodels",
+    "Achitecture"
   ],
   "author": "R.Piontik",
-  "license": "ISC"
+  "license": "GPLV3"
 }
