@@ -7,6 +7,7 @@
   "module": "index.js",
   "files": ["."],
   "homepage": "https://dochub.info",
+  "bin": "index.js",
   "repository": "git+https://github.com/rpiontik/archpkg.git",
   "scripts": {
     "start": "PUBLIC_URL=/ node index.js",
