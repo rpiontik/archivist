@@ -1,0 +1,14 @@
+{
+  "name": "archivist",
+  "version": "1.0.0",
+  "description": "DocHub metamodel archive manager",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "DocHub"
+  ],
+  "author": "R.Piontik",
+  "license": "ISC"
+}
