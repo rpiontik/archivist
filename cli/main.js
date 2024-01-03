@@ -3,6 +3,7 @@
 // https://davidlozzi.com/2021/03/16/style-up-your-console-logs/
 
 const request = require('request');
+const unzip = require('unzip');
 
 const REPO_SERVER = new URL('http://localhost:3000');
 
@@ -88,6 +89,7 @@ const API = {
             throw new Error(`Error of resolve the download link of package ${package}. Response code ${response.statusCode} with body [${response.body}]`);
         const content = JSON.parse(response.body);
         log.end(`Link is found: ${content.source}`);
+        request(content.source).pipe(unzip.Extract({ path: './out/' }));
         log.end('Done.');
     }
 };
