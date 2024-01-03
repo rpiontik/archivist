@@ -18,7 +18,7 @@ const log = {
         this.level++;
     },
     end(info) {
-        console.info(this.getMargin(), '\x1b[32m', info, '\x1b[0m');
+        console.info(this.getMargin(), `\x1b[32m${info}\x1b[0m`);
         this.level && this.level--;
     },
     getMargin() {
@@ -28,19 +28,24 @@ const log = {
         console.log(this.getMargin(), info);
     },
     error(info) {
-        console.error(this.getMargin(), '\x1b[31m', info, '\x1b[0m');
+        console.error(this.getMargin(), `\x1b[31m${info}\x1b[0m`);
     },
     success(info) {
-        console.info(this.getMargin(), '\x1b[32m', info, '\x1b[0m');
+        console.info(this.getMargin(), `\x1b[32m${info}\x1b[0m`);
+    },
+    progressBegin() {
     },
     progress(value, total) {
         if (total) {
             const percentage = ((value * 100) / total).toFixed(2);
-            console.log(percentage + "% | " + value + " bytes out of " + total + " bytes.");
+            process.stdout.write(`\r${this.getMargin()} [${percentage}%] ${value}  bytes out of ${total}  bytes.`);
         } else {
-            console.log("Recieved " + value + " bytes.");
+            process.stdout.write(`\r${this.getMargin()} Recieved ${value} bytes.`);
         }
-    }
+    },
+    progressEnd() {
+        process.stdout.write('\r\n');
+    },
 };
 
 
@@ -62,13 +67,15 @@ const storageAPI = {
             request(url)
                 .on('response', (data) => {
                     totalBytes = parseInt(data.headers['content-length']);
+                    log.progressBegin();
                 })
                 .on('data', (chunk) => {
                     receivedBytes += chunk.length;
                     log.progress(receivedBytes, totalBytes);
                 })
                 .on('end', (chunk) => {
-                    log.end(`Done.`);
+                    log.progressEnd();
+                    log.end('Done.');
                 })
                 .on('error', reject)
                 .pipe(unzipper.Extract({ path: tmpFolder }))
@@ -77,6 +84,17 @@ const storageAPI = {
                     success(tmpFolder);
                 });
         });
+    },
+    async moveUnzipPackageTo(from, to, package) {
+        const folder = (fs.readdirSync(from) || [])[0];
+        if (!folder) 
+            throw new Error('Structure of the pecked is incorrect!');
+        !fs.existsSync(to) && fs.mkdirSync(to, { recursive: true });
+        const source = path.resolve(from, folder);
+        const distanation = path.resolve(to, package);
+        fs.renameSync(source, distanation);
+        log.debug(`The package move to ${distanation}`);
+        return distanation;
     }
 };
 
@@ -149,10 +167,10 @@ const run = async () => {
         async install(params) {
             const package = params[0];
             if (!package) throw new Error('Package name is required!');
-            log.begin(`Try to instal [${package}]`);
+            log.begin(`Try to install [${package}]`);
             const linkToPackage = await API.getLinkToPackage(package);
             const tempFolder = await storageAPI.downloadAndUnzipFrom(linkToPackage);
-            console.info(tempFolder);
+            storageAPI.moveUnzipPackageTo(tempFolder, path.resolve(process.cwd(), '_metamodels_'), package.split('@')[0]);
 
             log.end(`Done.`);
         }
