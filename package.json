@@ -5,7 +5,9 @@
   "private": false,
   "main": "index.js",
   "module": "index.js",
-  "files": ["."],
+  "files": [
+    "."
+  ],
   "homepage": "https://dochub.info",
   "bin": {
     "archpkg": "cli/main.js"
@@ -22,5 +24,8 @@
     "Achitecture"
   ],
   "author": "R.Piontik",
-  "license": "GPLV3"
+  "license": "GPLV3",
+  "dependencies": {
+    "request": "^2.88.2"
+  }
 }
