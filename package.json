@@ -1,6 +1,6 @@
 {
   "name": "archpkg",
-  "version": "1.0.4",
+  "version": "1.0.6",
   "description": "The DocHub metamodel repository manager.",
   "private": false,
   "main": "index.js",
@@ -26,6 +26,7 @@
   "author": "R.Piontik",
   "license": "GPLV3",
   "dependencies": {
-    "request": "^2.88.2"
+    "request": "^2.88.2",
+    "zlib": "^1.0.5"
   }
 }
