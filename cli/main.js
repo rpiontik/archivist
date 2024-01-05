@@ -8,8 +8,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const SEP = path.sep;
+const yaml = require('yaml');
 
 const REPO_SERVER = new URL('http://localhost:3000');
+
+const locationCWD = path.resolve(process.cwd(), '_metamodels_');
+
 
 const log = {
     level: 0,
@@ -49,7 +53,8 @@ const log = {
 };
 
 
-const storageAPI = {
+const packageAPI = {
+    installed: {},
     getTempFolder() {
         return new Promise((success, reject) => {
             fs.mkdtemp(`${os.tmpdir()}${SEP}archpkg-`, (err, folder) => {
@@ -64,9 +69,14 @@ const storageAPI = {
             log.begin(`Downloading ${url}...`);
             let totalBytes = 0;
             let receivedBytes = 0;
+            // success('/tmp/archpkg-WqheRm/');
             request(url)
                 .on('response', (data) => {
                     totalBytes = parseInt(data.headers['content-length']);
+                    if (data.statusCode === 404) 
+                        reject(`Package unavailable on URL ${url}`);
+                    if ((data.statusCode < 200) || data.statusCode > 300)
+                        reject(`Error of downloading package from [${url}]. Response with code ${data.statusCode}.`);
                     log.progressBegin();
                 })
                 .on('data', (chunk) => {
@@ -85,16 +95,63 @@ const storageAPI = {
                 });
         });
     },
-    async moveUnzipPackageTo(from, to, package) {
+    async getPackageMetadataFromSource(dir) {
+        const manifest = path.resolve(dir, 'dochub.yaml');
+        if (!fs.existsSync(manifest))
+            throw new Error(`Error of package structure. No found dochub.yaml in ${dir}`);
+        const content = yaml.parse(fs.readFileSync(manifest, { encoding: 'utf8' }));
+        const result = content?.$package;
+        if (!result) 
+            throw new Error(`No available $package metadata of package in ${path.resolve(dir, 'dochub.yaml')}`);
+        return result;
+    },
+    async fetchInstalledPackages(location) {
+        if (this.installed[location]) return this.installed[location];
+        log.begin(`Fetch installed packages in ${location}...`);
+        const folders = (fs.readdirSync(location) || []);
+        const result = [];
+        for (const index in folders) {
+            log.debug(`Scaning ${folders[index]}`);
+            const source = path.resolve(location, folders[index]);
+            const metadata = await this.getPackageMetadataFromSource(source);
+            result.push(
+                { 
+                    source,
+                    metadata
+                }
+            );
+
+        }
+        log.end('Done.');
+        return this.installed[location] = result;
+    },
+    async getPackageMetadata(location, packageID) {
+        const packages = await this.fetchInstalledPackages(location);
+        if (!packages) return null;
+        return packages.find((item) => {
+            return item.metadata[packageID];
+        })?.metadata[packageID];
+    },
+    async getInstalledPackageVersion(location, packageID) {
+        const metadata = await this.getPackageMetadata(location, packageID);
+        return metadata ? metadata.version : null;
+    },
+    async installPackageTo(from, location, packageId) {
         const folder = (fs.readdirSync(from) || [])[0];
         if (!folder) 
             throw new Error('Structure of the pecked is incorrect!');
-        !fs.existsSync(to) && fs.mkdirSync(to, { recursive: true });
+        !fs.existsSync(location) && fs.mkdirSync(location, { recursive: true });
         const source = path.resolve(from, folder);
-        const distanation = path.resolve(to, package);
+        const metadata = await this.getPackageMetadataFromSource(source);
+
+        const distanation = path.resolve(location, packageId);
         fs.renameSync(source, distanation);
+        // fs.rmSync(from, { recursive: true, force: true } ); // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         log.debug(`The package move to ${distanation}`);
         return distanation;
+    },
+    async isInstalledPackage(location, packageId, packageVer) {
+
     }
 };
 
@@ -115,7 +172,7 @@ const doRequest = function (url) {
 }
 
 
-const API = {
+const repoAPI = {
     env: {
         token: null // Токен авторизации
     },
@@ -167,10 +224,19 @@ const run = async () => {
         async install(params) {
             const package = params[0];
             if (!package) throw new Error('Package name is required!');
+
+            const packageStruct = package.split('@');
+            const packageID = packageStruct[0];
+            const packageVer = packageStruct[1];
+            const currentVer = await packageAPI.getInstalledPackageVersion(locationCWD, packageID);
+
+            console.info('>>>>>>>>>>>>>>> CV', currentVer);
+
             log.begin(`Try to install [${package}]`);
-            const linkToPackage = await API.getLinkToPackage(package);
-            const tempFolder = await storageAPI.downloadAndUnzipFrom(linkToPackage);
-            storageAPI.moveUnzipPackageTo(tempFolder, path.resolve(process.cwd(), '_metamodels_'), package.split('@')[0]);
+            const linkToPackage = await repoAPI.getLinkToPackage(package);
+            const tempFolder = await packageAPI.downloadAndUnzipFrom(linkToPackage);
+            console.info('>>>>', tempFolder);
+            packageAPI.installPackageTo(tempFolder, locationCWD, packageID);
 
             log.end(`Done.`);
         }
@@ -190,4 +256,3 @@ run().catch((error) => {
     log.error(error)
     process.exit(1)
 });
-
