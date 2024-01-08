@@ -18,6 +18,7 @@ const REPO_SERVER = new URL('http://localhost:3000');
 
 const cwd = process.cwd();
 const locationCWD = path.resolve(cwd, '_metamodels_');
+const importYamlName = 'packages.yaml';
 
 
 const log = {
@@ -85,17 +86,116 @@ const packageAPI = {
 
     getHashOf(str, seed = 0) {
         let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
-        for(let i = 0, ch; i < str.length; i++) {
+        for (let i = 0, ch; i < str.length; i++) {
             ch = str.charCodeAt(i);
             h1 = Math.imul(h1 ^ ch, 2654435761);
             h2 = Math.imul(h2 ^ ch, 1597334677);
         }
-        h1  = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+        h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
         h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-        h2  = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+        h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
         h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-      
+
         return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+    },
+
+    // Добавляет импорт в файл
+
+    // Строим граф зависимостей по данным из указанной области
+    async buildDependenciesGraph(location) {
+        log.begin('Building dependencies graph...');
+        let result = [];
+        const tree = {};
+        const installed = await this.fetchInstalledPackages(location);
+        // Инициализируем дерево зависимостей
+        installed.map((node) => {
+            for (const extId in node.metadata) {
+                const extention = node.metadata[extId];
+                const out = Object.keys(extention.dependencies || {});
+                !tree[extId] && (tree[extId] = { id: extId, in: [], out: [] });
+                tree[extId].out = tree[extId].out.concat(out);
+                out.map((packageId) => {
+                    !tree[packageId] && (tree[packageId] = { id: packageId, in: [], out: [] });
+                    tree[packageId].in.push(extId);
+                });
+            }
+        });
+
+        // Разбираем дерево зависимостей
+        const pullNext = () => {
+            const result = [];
+            Object.keys(tree).map((packageId) => {
+                const package = tree[packageId];
+                if (!package.in.length) {
+                    package.out.map((outId) => {
+                        tree[outId].in = tree[outId].in.filter((element) => element !== packageId);
+                    });
+                    result.push(package);
+                    delete tree[packageId];
+                }
+            });
+            return result;
+        };
+
+        let part = null;
+        while ((part = pullNext()).length) {
+            result = result.concat(part);
+        }
+
+        const remainder = Object.keys(tree);
+        if (remainder.length > 0)
+            throw new Error(`Cyclic dependencies detected. Could not resolve dependencies for [${remainder.join(';')}]`);
+
+        log.end('Done.');
+        return result;
+    },
+
+    async makeImportsFileByDependenciesGraph(location, graph) {
+        const imports = [];
+        for (const i in graph) {
+            const item = graph[i];
+            const source = await this.getSourceOfPackageID(location, item.id);
+            if (source) {
+                const packageFolder = path.basename(path.dirname((path.resolve(source, 'dochub.yaml'))));
+                imports.unshift(`${packageFolder}${path.sep}dochub.yaml`);
+            }
+        };
+        return {
+            imports
+        };
+    },
+
+    // Создает YAML файл подключения пакетов
+    async makeImportsYaml(location) {
+        log.begin('Building a packages import file...');
+        const graph = await this.buildDependenciesGraph(location);
+        const imports = await packageAPI.makeImportsFileByDependenciesGraph(location, graph);
+        const dochubYaml = new yaml.Document(imports);
+        dochubYaml.commentBefore = 'This file is generated automatically by the utility https://www.npmjs.com/package/archpkg.\nIt is not recommended to make changes to it.';
+        const filePath = path.resolve(location, importYamlName);
+        fs.writeFileSync(filePath, String(dochubYaml), { encoding: 'utf8', flag: 'w' });
+        log.debug(`Built ${filePath}`);
+        log.end('Done.');
+        return filePath;
+    },
+
+    // Добавляет импорт файла в yaml файл
+    async appendImportToYaml(source, link) {
+        // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        //      Еще зависимости пакетов нужно будет обновить :(((
+        // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        const content = fs.readFileSync(source, { encoding: 'utf8' });
+        const yamlFile = yaml.parseDocument(content);
+        if (((yamlFile.toJS() || {}).imports || []).indexOf(link) < 0) {
+            const imports = yamlFile.get('imports');
+            if (imports) {
+                imports.add(yamlFile.createNode(link));
+            } else {
+                yamlFile.add(yamlFile.createPair('imports', [link]));
+            }
+            console.info('>>>>>>>>>', yamlFile.toJS(imports));
+            fs.writeFileSync(source, String(yamlFile), { encoding: 'utf8', flag: 'w' });
+        } else console.info('FOUND!');
     },
 
     getTempFolderFor(url) {
@@ -155,13 +255,27 @@ const packageAPI = {
         return result;
     },
 
+    // Возвращает ссылку на ресурс, где встречается идентификатор пакета
+    async getSourceOfPackageID(location, packageId) {
+        const packages = await this.fetchInstalledPackages(location);
+        return (packages.find((package) => package.metadata[packageId]) || {}).source;
+    },
+
+    // Сканирует пространство на наличие пакетов и возвращает список директорий
+    async scanLocation(location) {
+        return fs.readdirSync(location, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory())
+            .map(dirent => dirent.name);
+    },
+
+    // Получает сведения об установленных пакетах в заданном пространстве
     async fetchInstalledPackages(location) {
         if (this.installed[location]) return this.installed[location];
         log.begin(`Fetch installed packages in ${location}...`);
-        const folders = (fs.readdirSync(location) || []);
+        const folders = await this.scanLocation(location);
         const result = [];
         for (const index in folders) {
-            log.debug(`Scaning ${folders[index]}`);
+            log.debug(`Scanning ${folders[index]}`);
             const source = path.resolve(location, folders[index]);
             const metadata = await this.getPackageMetadataFromSource(source);
             result.push(
@@ -193,36 +307,41 @@ const packageAPI = {
     },
 
     async resolveDependencies(metadata, location) {
-        for (const extentionId in metadata) {
-            const dependencies = metadata[extentionId].dependencies;
+        for (const extensionId in metadata) {
+            const dependencies = metadata[extensionId].dependencies;
             if (dependencies) {
-                log.begin(`Install dependencies for ${extentionId}...`);
+                log.begin(`Install dependencies for ${extensionId}...`);
                 for (const packageId in dependencies) {
                     const version = dependencies[packageId];
                     await commands.install([`${packageId}@${version}`], location);
                 }
                 log.end('Done.');
-            } else log.debug(`Installed extension ${extentionId}`);
+            } else log.debug(`Installed extension ${extensionId}`);
         }
     },
 
     async installPackageTo(from, location, packageId) {
-        const folder = (fs.readdirSync(from) || [])[0];
+        const folder = await this.scanLocation(from)[0];
         if (!folder)
             throw new Error('Structure of the pecked is incorrect!');
         !fs.existsSync(location) && fs.mkdirSync(location, { recursive: true });
         const source = path.resolve(from, folder);
         const metadata = await this.getPackageMetadataFromSource(source) || {};
         this.resolveDependencies(metadata, location);
-        const distanation = path.resolve(location, packageId);
-        fs.rmSync(distanation, { recursive: true, force: true });
-        fs.renameSync(source, distanation);
+        const destination = path.resolve(location, packageId);
+        fs.rmSync(destination, { recursive: true, force: true });
+        fs.renameSync(source, destination);
         const toRemoveFolder = this.tempFolders.find((folder) => {
             return source.startsWith(folder);
         });
         toRemoveFolder && fs.rmSync(toRemoveFolder, { recursive: true, force: true });
-        log.debug(`The package intalled to ${distanation}`);
-        return distanation;
+        await this.fetchInstalledPackages(location).push({
+            source,
+            metadata
+        });
+
+        log.debug(`The package installed to ${destination}`);
+        return destination;
     },
 
     async removePackageFrom(location, packageId) {
@@ -231,6 +350,8 @@ const packageAPI = {
         const package = await this.getPackageMetadata(location, packageId);
         if (package) {
             fs.rmSync(path.resolve(package.source), { recursive: true, force: true });
+            const index = installed.findIndex((item) => item.source === package.source);
+            if (index >= 0) installed.splice(index, 1);
         } else {
             throw new Error(`Could not remove package ${packageId} from ${package.source} because it is not found.`);
         }
@@ -315,7 +436,6 @@ const commands = {
             log.begin(`installing dependencies...`);
             const metadata = await packageAPI.getPackageMetadataFromSource(cwd) || {};
             await packageAPI.resolveDependencies(metadata, locationCWD);
-            log.begin('done');
         } else {
             log.begin(`Try to install [${package}]`);
             const packageStruct = package.split('@');
@@ -325,7 +445,7 @@ const commands = {
             const currentVer = await packageAPI.getInstalledPackageVersion(targetLocation, packageID);
 
             if ((currentVer && !packageVer) || semver.satisfies(currentVer, packageVer)) {
-                log.success(`Package ${packageID} alrady installed.`);
+                log.success(`Package ${packageID} already installed.`);
                 const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(targetLocation, packageID)) || {};
                 await packageAPI.resolveDependencies(metadata, locationCWD);
             } else {
@@ -340,14 +460,14 @@ const commands = {
                     await packageAPI.installPackageTo(tempFolder, location || locationCWD, packageID);
                 }
             }
-
-            log.end(`Done.`);
         }
+        log.end(`Done.`);
     }
 };
 
 const commandFlags = {
-    nocleancache: false // Не очищать кэш скачанных пакетов после установки 
+    nocleancache: false,    // Не очищать кэш скачанных пакетов после установки 
+    save: false             // Признак необходимости автоматически подключить пакеты в dochub.yaml
 };
 
 const run = async () => {
@@ -360,7 +480,7 @@ const run = async () => {
         if (key.slice(0, 1) !== '-') {
             params.push(arg);
             return;
-        } 
+        }
         key = key.slice(1);
         if (commandFlags[key] !== undefined) {
             commandFlags[key] = struct[1] || true;
@@ -376,14 +496,23 @@ const run = async () => {
         log.error(`Unknown command [${command}]`)
         process.exit(1)
     }
-    
+
     await handler(params.slice(3));
+
+    const packagesYaml = await packageAPI.makeImportsYaml(locationCWD);
+
+    if (commandFlags.save) {
+        await packageAPI.appendImportToYaml(path.resolve(cwd, 'dochub.yaml'), '_metamodels_/packages.yaml');
+    } else {
+        log.success(`\nSuccess!\n\nIMPORTANT: You need to manually specify the import of the ${packagesYaml} file for your project.\nIf you want to add imports automatically, use the "-save" option.\n`);
+    }
+   
 }
 
 packageAPI.beginInstall();
 
 run()
-.catch((error) => {
-    log.error(error)
-    process.exit(1)
-}).finally(() => packageAPI.endInstall(!commandFlags.nocleancache));
+    .catch((error) => {
+        log.error(error)
+        process.exit(1)
+    }).finally(() => packageAPI.endInstall(!commandFlags.nocleancache));
