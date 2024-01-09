@@ -1,1 +1,1 @@
-console.info('Hello world!');
+console.info('Hello! I am Architecture Packages manager. For more the informationmm welcome to https://www.npmjs.com/package/archpkg');

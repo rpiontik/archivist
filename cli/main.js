@@ -194,13 +194,12 @@ const packageAPI = {
             thisPackage = Object.keys(data.$package)[0];
         }
 
-        const currentVersion = data.$package[thisPackage][packageId];
+        const currentVersion = (data.$package[thisPackage].dependencies || {})[packageId];
         if (currentVersion !== version) {
             const yaml$package = yamlFile.get('$package');
             const yamlPackageData = yaml$package.get(thisPackage);
             let yamlDependencies = yamlPackageData.get('dependencies');
             if (!yamlDependencies) {
-                console.info('>>>>>>>>>>>>', yamlDependencies);
                 yamlDependencies = yamlFile.createPair('dependencies', {});
                 yaml$package.add(yamlDependencies);
             }
@@ -228,24 +227,6 @@ const packageAPI = {
             }
             fs.writeFileSync(source, String(yamlFile), { encoding: 'utf8', flag: 'w' });
         }
-        /*
-        if (!data.$package) {
-            data.$packege = { '.': { dependencies: {} } };
-            yamlFile.add(yamlFile.createPair('$package', data.$package));
-            isChange = true;
-        }
-        const $packege = yamlFile.get('$package');
-
-        const installed = await this.fetchInstalledPackages(path.resolve(location, '_metamodels_'));
-        // Инициализируем дерево зависимостей
-        installed.map((node) => {
-            console.info('>>>>>>>>>>>>>', node.metadata);
-            for (const extId in node.metadata) {
-            }
-        });
-
-        fs.writeFileSync(dochubYaml, String(yamlFile), { encoding: 'utf8', flag: 'w' });
-        */
     },
 
     getTempFolderFor(url) {
@@ -378,7 +359,7 @@ const packageAPI = {
         !fs.existsSync(location) && fs.mkdirSync(location, { recursive: true });
         const source = path.resolve(from, folder);
         const metadata = await this.getPackageMetadataFromSource(source) || {};
-        await this.resolveDependencies(metadata, location);
+        // await this.resolveDependencies(metadata, location);
         const destination = path.resolve(location, packageId);
         fs.rmSync(destination, { recursive: true, force: true });
         fs.renameSync(source, destination);
@@ -405,25 +386,30 @@ const packageAPI = {
 
     async specificInstall(location, packageID, packageVer) {
         log.begin(`Try to install [${packageID}@${packageVer}]`);
-        const currentVer = await packageAPI.getInstalledPackageVersion(location, packageID);
+        let result = false;
+        const modulesPath = path.resolve(location, '_metamodels_');
+        const currentVer = await packageAPI.getInstalledPackageVersion(modulesPath, packageID);
 
         if ((currentVer && !packageVer) || semver.satisfies(currentVer, packageVer)) {
             log.success(`Package ${packageID} already installed.`);
-            const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(location, packageID)) || {};
-            await packageAPI.resolveDependencies(metadata, location);
         } else {
             if (currentVer) {
                 log.debug(`Current version ${currentVer} will be updated to ${packageVer}.`);
-                await this.removePackageFrom(location, packageID);
+                await this.removePackageFrom(modulesPath, packageID);
             }
             const linkToPackage = await repoAPI.getLinkToPackage(`${packageID}@${packageVer}`);
 
             if (linkToPackage !== 'built-in') {
                 const tempFolder = await packageAPI.downloadAndUnzipFrom(linkToPackage);
-                await packageAPI.installPackageTo(tempFolder, location, packageID);
+                await packageAPI.installPackageTo(tempFolder, modulesPath, packageID);
+                const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(modulesPath, packageID)) || {};
+                await packageAPI.resolveDependencies(metadata, location);
             }
+            result = true;
         }
+        
         log.end(`Done.`);
+        return result;
     },
 
 
@@ -513,40 +499,6 @@ const commands = {
         await packageAPI.removePackageFrom(locationCWD, packageID);
     },
 
-    async doInstall(params, location) {
-        const package = params[0];
-        if (!package) {
-            log.begin(`installing dependencies...`);
-            const metadata = await packageAPI.getPackageMetadataFromSource(cwd) || {};
-            await packageAPI.resolveDependencies(metadata, locationCWD);
-        } else {
-            log.begin(`Try to install [${package}]`);
-            const packageStruct = package.split('@');
-            const packageID = packageStruct[0];
-            const packageVer = packageStruct[1];
-            const targetLocation = location || locationCWD;
-            const currentVer = await packageAPI.getInstalledPackageVersion(targetLocation, packageID);
-
-            if ((currentVer && !packageVer) || semver.satisfies(currentVer, packageVer)) {
-                log.success(`Package ${packageID} already installed.`);
-                const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(targetLocation, packageID)) || {};
-                await packageAPI.resolveDependencies(metadata, locationCWD);
-            } else {
-                if (currentVer) {
-                    log.debug(`Current version ${currentVer} will be updated to ${packageVer}.`);
-                    await commands.remove([packageID]);
-                }
-                const linkToPackage = await repoAPI.getLinkToPackage(package);
-
-                if (linkToPackage !== 'built-in') {
-                    const tempFolder = await packageAPI.downloadAndUnzipFrom(linkToPackage);
-                    await packageAPI.installPackageTo(tempFolder, location || locationCWD, packageID);
-                }
-            }
-        }
-        log.end(`Done.`);
-    },
-
     async install(params) {
         const package = params[0];
         if (!package) {
@@ -555,11 +507,13 @@ const commands = {
             const packageStruct = package.split('@');
             const packageID = packageStruct[0];
             const packageVer = packageStruct[1];
-            commands.specificInstall(cwd, packageID, packageVer);
+            await packageAPI.specificInstall(cwd, packageID, packageVer)
+                && package
+                && commandFlags.save
+                && await packageAPI.addDependencyToDochubYaml(
+                    path.resolve(cwd, 'dochub.yaml'), packageID, packageVer || '>0.0.0'
+                );
         }
-        package && commandFlags.save && await packageAPI.addDependencyToDochubYaml(
-            path.resolve(cwd, 'dochub.yaml'), packageID, packageVer || '>0.0.0'
-        ); // !!!!!!!!!!!!! сюда нужно добавить ID текущего пакета
     }
 };
 
