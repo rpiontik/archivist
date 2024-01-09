@@ -179,23 +179,73 @@ const packageAPI = {
         return filePath;
     },
 
-    // Добавляет импорт файла в yaml файл
-    async appendImportToYaml(source, link) {
-        // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        //      Еще зависимости пакетов нужно будет обновить :(((
-        // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // Добавляет зависимость в пакет
+    async addDependencyToDochubYaml(source, packageId, version, thisPackage) {
+        log.begin('Append dependency...');
         const content = fs.readFileSync(source, { encoding: 'utf8' });
         const yamlFile = yaml.parseDocument(content);
-        if (((yamlFile.toJS() || {}).imports || []).indexOf(link) < 0) {
+        const data = yamlFile.toJS() || {};
+        if (!data.$package) {
+            thisPackage = thisPackage || '.';
+            log.debug(`No $package entry found. It will be created with package id ${thisPackage}`);
+            data.$package = { [thisPackage]: { dependencies: {} } };
+            yamlFile.add(yamlFile.createPair('$package', data.$package));
+        } else if (!thisPackage) {
+            thisPackage = Object.keys(data.$package)[0];
+        }
+
+        const currentVersion = data.$package[thisPackage][packageId];
+        if (currentVersion !== version) {
+            const yaml$package = yamlFile.get('$package');
+            const yamlPackageData = yaml$package.get(thisPackage);
+            let yamlDependencies = yamlPackageData.get('dependencies');
+            if (!yamlDependencies) {
+                console.info('>>>>>>>>>>>>', yamlDependencies);
+                yamlDependencies = yamlFile.createPair('dependencies', {});
+                yaml$package.add(yamlDependencies);
+            }
+            if (!currentVersion)
+                yamlDependencies.add(yamlFile.createPair(packageId, version));
+            else
+                yamlDependencies[packageId] = version;
+            fs.writeFileSync(source, String(yamlFile), { encoding: 'utf8', flag: 'w' });
+        }
+
+        log.end('Done.');
+    },
+
+    // Добавляет импорт в yaml
+    async addImportToDochubYaml(source, link) {
+        const content = fs.readFileSync(source, { encoding: 'utf8' });
+        const yamlFile = yaml.parseDocument(content);
+        const data = yamlFile.toJS() || {};
+        if ((data.imports || []).indexOf(link) < 0) {
             const imports = yamlFile.get('imports');
             if (imports) {
                 imports.add(yamlFile.createNode(link));
             } else {
                 yamlFile.add(yamlFile.createPair('imports', [link]));
             }
-            console.info('>>>>>>>>>', yamlFile.toJS(imports));
             fs.writeFileSync(source, String(yamlFile), { encoding: 'utf8', flag: 'w' });
-        } else console.info('FOUND!');
+        }
+        /*
+        if (!data.$package) {
+            data.$packege = { '.': { dependencies: {} } };
+            yamlFile.add(yamlFile.createPair('$package', data.$package));
+            isChange = true;
+        }
+        const $packege = yamlFile.get('$package');
+
+        const installed = await this.fetchInstalledPackages(path.resolve(location, '_metamodels_'));
+        // Инициализируем дерево зависимостей
+        installed.map((node) => {
+            console.info('>>>>>>>>>>>>>', node.metadata);
+            for (const extId in node.metadata) {
+            }
+        });
+
+        fs.writeFileSync(dochubYaml, String(yamlFile), { encoding: 'utf8', flag: 'w' });
+        */
     },
 
     getTempFolderFor(url) {
@@ -263,6 +313,7 @@ const packageAPI = {
 
     // Сканирует пространство на наличие пакетов и возвращает список директорий
     async scanLocation(location) {
+        if (!fs.existsSync(location)) return [];
         return fs.readdirSync(location, { withFileTypes: true })
             .filter(dirent => dirent.isDirectory())
             .map(dirent => dirent.name);
@@ -310,10 +361,10 @@ const packageAPI = {
         for (const extensionId in metadata) {
             const dependencies = metadata[extensionId].dependencies;
             if (dependencies) {
-                log.begin(`Install dependencies for ${extensionId}...`);
+                log.begin(`Install dependencies for [${extensionId}]...`);
                 for (const packageId in dependencies) {
                     const version = dependencies[packageId];
-                    await commands.install([`${packageId}@${version}`], location);
+                    await this.specificInstall(location, packageId, version);
                 }
                 log.end('Done.');
             } else log.debug(`Installed extension ${extensionId}`);
@@ -321,13 +372,13 @@ const packageAPI = {
     },
 
     async installPackageTo(from, location, packageId) {
-        const folder = await this.scanLocation(from)[0];
+        const folder = (await this.scanLocation(from))[0];
         if (!folder)
-            throw new Error('Structure of the pecked is incorrect!');
+            throw new Error(`Structure of the pecked is incorrect in ${from}!`);
         !fs.existsSync(location) && fs.mkdirSync(location, { recursive: true });
         const source = path.resolve(from, folder);
         const metadata = await this.getPackageMetadataFromSource(source) || {};
-        this.resolveDependencies(metadata, location);
+        await this.resolveDependencies(metadata, location);
         const destination = path.resolve(location, packageId);
         fs.rmSync(destination, { recursive: true, force: true });
         fs.renameSync(source, destination);
@@ -335,7 +386,7 @@ const packageAPI = {
             return source.startsWith(folder);
         });
         toRemoveFolder && fs.rmSync(toRemoveFolder, { recursive: true, force: true });
-        await this.fetchInstalledPackages(location).push({
+        (await this.fetchInstalledPackages(location)).push({
             source,
             metadata
         });
@@ -343,6 +394,38 @@ const packageAPI = {
         log.debug(`The package installed to ${destination}`);
         return destination;
     },
+
+    // Устанавливает все зависимости для конкретного пакета
+    async allInstall(location) {
+        log.begin(`installing dependencies...`);
+        const metadata = await packageAPI.getPackageMetadataFromSource(location) || {};
+        await packageAPI.resolveDependencies(metadata, path.resolve(location, '_metamodels_'));
+        log.end(`Done.`);
+    },
+
+    async specificInstall(location, packageID, packageVer) {
+        log.begin(`Try to install [${packageID}@${packageVer}]`);
+        const currentVer = await packageAPI.getInstalledPackageVersion(location, packageID);
+
+        if ((currentVer && !packageVer) || semver.satisfies(currentVer, packageVer)) {
+            log.success(`Package ${packageID} already installed.`);
+            const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(location, packageID)) || {};
+            await packageAPI.resolveDependencies(metadata, location);
+        } else {
+            if (currentVer) {
+                log.debug(`Current version ${currentVer} will be updated to ${packageVer}.`);
+                await this.removePackageFrom(location, packageID);
+            }
+            const linkToPackage = await repoAPI.getLinkToPackage(`${packageID}@${packageVer}`);
+
+            if (linkToPackage !== 'built-in') {
+                const tempFolder = await packageAPI.downloadAndUnzipFrom(linkToPackage);
+                await packageAPI.installPackageTo(tempFolder, location, packageID);
+            }
+        }
+        log.end(`Done.`);
+    },
+
 
     async removePackageFrom(location, packageId) {
         log.begin(`Try to remove package ${packageId}...`);
@@ -430,7 +513,7 @@ const commands = {
         await packageAPI.removePackageFrom(locationCWD, packageID);
     },
 
-    async install(params, location) {
+    async doInstall(params, location) {
         const package = params[0];
         if (!package) {
             log.begin(`installing dependencies...`);
@@ -462,6 +545,21 @@ const commands = {
             }
         }
         log.end(`Done.`);
+    },
+
+    async install(params) {
+        const package = params[0];
+        if (!package) {
+            await packageAPI.allInstall(cwd);
+        } else {
+            const packageStruct = package.split('@');
+            const packageID = packageStruct[0];
+            const packageVer = packageStruct[1];
+            commands.specificInstall(cwd, packageID, packageVer);
+        }
+        package && commandFlags.save && await packageAPI.addDependencyToDochubYaml(
+            path.resolve(cwd, 'dochub.yaml'), packageID, packageVer || '>0.0.0'
+        ); // !!!!!!!!!!!!! сюда нужно добавить ID текущего пакета
     }
 };
 
@@ -471,7 +569,6 @@ const commandFlags = {
 };
 
 const run = async () => {
-
     const params = [];
 
     process.argv.map((arg) => {
@@ -502,11 +599,10 @@ const run = async () => {
     const packagesYaml = await packageAPI.makeImportsYaml(locationCWD);
 
     if (commandFlags.save) {
-        await packageAPI.appendImportToYaml(path.resolve(cwd, 'dochub.yaml'), '_metamodels_/packages.yaml');
+        await packageAPI.addImportToDochubYaml(path.resolve(cwd, 'dochub.yaml'), `_metamodels_${path.sep}packages.yaml`);
     } else {
         log.success(`\nSuccess!\n\nIMPORTANT: You need to manually specify the import of the ${packagesYaml} file for your project.\nIf you want to add imports automatically, use the "-save" option.\n`);
     }
-   
 }
 
 packageAPI.beginInstall();
