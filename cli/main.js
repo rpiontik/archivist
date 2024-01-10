@@ -74,13 +74,7 @@ const packageAPI = {
 
     cleanCache() {
         log.begin('Clean cache...');
-        this.tempFolders.map((folder) => {
-            try {
-                fs.rmSync(folder, { recursive: true, force: true });
-            } catch (err) {
-                log.error(`Could not remove [${folder}] with error ${err.toString()} `);
-            }
-        });
+        fs.rmSync(this.getTempFolderFor(), { recursive: true, force: true });
         log.begin('Done.');
     },
 
@@ -205,8 +199,9 @@ const packageAPI = {
             }
             if (!currentVersion)
                 yamlDependencies.add(yamlFile.createPair(packageId, version));
-            else
-                yamlDependencies[packageId] = version;
+            else {
+                yamlDependencies.set(packageId, version);
+            }
             fs.writeFileSync(source, String(yamlFile), { encoding: 'utf8', flag: 'w' });
         }
 
@@ -232,7 +227,7 @@ const packageAPI = {
     getTempFolderFor(url) {
         const result = url
             ? path.resolve(os.tmpdir(), 'archpkg', `${this.getHashOf(url)}`)
-            : fs.mkdtempSync(path.resolve(os.tmpdir(), `archpkg-`));
+            : path.resolve(os.tmpdir(), 'archpkg')
         this.tempFolders.push(result);
         return result;
     },
@@ -275,14 +270,15 @@ const packageAPI = {
         });
     },
 
-    async getPackageMetadataFromSource(dir) {
-        const manifest = path.resolve(dir, 'dochub.yaml');
+    // Возвращает метаданные из указанного размещений
+    async getPackageMetadataFromSource(location) {
+        const manifest = path.resolve(location, 'dochub.yaml');
         if (!fs.existsSync(manifest))
-            throw new Error(`Error of package structure. No found dochub.yaml in ${dir}`);
+            throw new Error(`Error of package structure. No found dochub.yaml in ${location}`);
         const content = yaml.parse(fs.readFileSync(manifest, { encoding: 'utf8' }));
         const result = content?.$package;
         if (!result)
-            throw new Error(`No available $package metadata of package in ${path.resolve(dir, 'dochub.yaml')}`);
+            throw new Error(`No available $package metadata of package in ${manifest}`);
         return result;
     },
 
@@ -384,28 +380,33 @@ const packageAPI = {
         log.end(`Done.`);
     },
 
+    // Устанавливает пакет в указанный location (например ./_metamodels_)
     async specificInstall(location, packageID, packageVer) {
-        log.begin(`Try to install [${packageID}@${packageVer}]`);
+        log.begin(`Try to install [${packageID}@${packageVer || 'latest'}]`);
         let result = false;
-        const modulesPath = path.resolve(location, '_metamodels_');
-        const currentVer = await packageAPI.getInstalledPackageVersion(modulesPath, packageID);
+        const currentVer = await packageAPI.getInstalledPackageVersion(location, packageID);
 
         if ((currentVer && !packageVer) || semver.satisfies(currentVer, packageVer)) {
             log.success(`Package ${packageID} already installed.`);
+            const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(location, packageID)) || {};
+            await packageAPI.resolveDependencies(metadata, location);
+            result = currentVer;
         } else {
-            if (currentVer) {
-                log.debug(`Current version ${currentVer} will be updated to ${packageVer}.`);
-                await this.removePackageFrom(modulesPath, packageID);
-            }
-            const linkToPackage = await repoAPI.getLinkToPackage(`${packageID}@${packageVer}`);
+            const sourcePackage = await repoAPI.fetchSourceOfPackage(packageVer ? `${packageID}@${packageVer}` : packageID);
+            result = sourcePackage.version;
 
-            if (linkToPackage !== 'built-in') {
-                const tempFolder = await packageAPI.downloadAndUnzipFrom(linkToPackage);
-                await packageAPI.installPackageTo(tempFolder, modulesPath, packageID);
-                const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(modulesPath, packageID)) || {};
+            if (sourcePackage.source !== 'built-in') {
+                const tempFolder = await packageAPI.downloadAndUnzipFrom(sourcePackage.source);
+                
+                if (currentVer) {
+                    log.debug(`Current version ${currentVer} will be updated to ${packageVer}.`);
+                    await this.removePackageFrom(location, packageID);
+                }
+    
+                await packageAPI.installPackageTo(tempFolder, location, packageID);
+                const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(location, packageID)) || {};
                 await packageAPI.resolveDependencies(metadata, location);
             }
-            result = true;
         }
         
         log.end(`Done.`);
@@ -473,7 +474,7 @@ const repoAPI = {
             log.end(`Access token provided: ${content.token}`);
         }
     },
-    async getLinkToPackage(package) {
+    async fetchSourceOfPackage(package) {
         await this.getAccess();
         const url = this.makeURL(`${this.routes.repo.download}${package}`).toString();
         log.begin(`Try to get link of package...`);
@@ -486,7 +487,7 @@ const repoAPI = {
             throw new Error(`Error of resolve the download link of package ${package}. Response code ${response.statusCode} with body [${response.body}]`);
         const content = JSON.parse(response.body);
         log.end(`Link is found: ${content.source}`);
-        return content.source;
+        return content;
     },
 };
 
@@ -506,14 +507,26 @@ const commands = {
         } else {
             const packageStruct = package.split('@');
             const packageID = packageStruct[0];
-            const packageVer = packageStruct[1];
-            await packageAPI.specificInstall(cwd, packageID, packageVer)
-                && package
-                && commandFlags.save
+            let packageVer = packageStruct[1];
+            packageVer = await packageAPI.specificInstall(path.resolve(cwd, '_metamodels_'), packageID, packageVer);
+            packageVer && commandFlags.save
                 && await packageAPI.addDependencyToDochubYaml(
-                    path.resolve(cwd, 'dochub.yaml'), packageID, packageVer || '>0.0.0'
+                    path.resolve(cwd, 'dochub.yaml'), packageID, packageVer
                 );
         }
+
+        const packagesYaml = await packageAPI.makeImportsYaml(locationCWD);
+
+        if (commandFlags.save) {
+            await packageAPI.addImportToDochubYaml(path.resolve(cwd, 'dochub.yaml'), `_metamodels_${path.sep}packages.yaml`);
+        } else {
+            log.success(`\nSuccess!\n\nIMPORTANT: You need to manually specify the import of the ${packagesYaml} file for your project.\nIf you want to add imports automatically, use the "-save" option.\n`);
+        }
+    },
+
+    async clean() {
+        packageAPI.cleanCache();
+
     }
 };
 
@@ -550,13 +563,6 @@ const run = async () => {
 
     await handler(params.slice(3));
 
-    const packagesYaml = await packageAPI.makeImportsYaml(locationCWD);
-
-    if (commandFlags.save) {
-        await packageAPI.addImportToDochubYaml(path.resolve(cwd, 'dochub.yaml'), `_metamodels_${path.sep}packages.yaml`);
-    } else {
-        log.success(`\nSuccess!\n\nIMPORTANT: You need to manually specify the import of the ${packagesYaml} file for your project.\nIf you want to add imports automatically, use the "-save" option.\n`);
-    }
 }
 
 packageAPI.beginInstall();
