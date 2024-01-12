@@ -1,6 +1,6 @@
 {
   "name": "archpkg",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "The DocHub metamodel repository manager.",
   "private": false,
   "main": "index.js",
@@ -28,7 +28,7 @@
   "dependencies": {
     "request": "^2.88.2",
     "semver": "^7.5.4",
-    "unzipper": "^0.10.14",
+    "unzipper": "0.9.15",
     "yaml": "^2.3.4"
   }
 }
