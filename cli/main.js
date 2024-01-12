@@ -5,7 +5,9 @@
 
 
 const request = require('request');
-const unzipper = require('unzipper');
+// const unzipper = require('unzipper');
+const tar = require("tar");
+var zlib = require('zlib');
 const semver = require('semver');
 
 const fs = require('fs');
@@ -87,21 +89,6 @@ const packageAPI = {
         log.begin('Done.');
     },
 
-    getHashOf(str, seed = 0) {
-        let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
-        for (let i = 0, ch; i < str.length; i++) {
-            ch = str.charCodeAt(i);
-            h1 = Math.imul(h1 ^ ch, 2654435761);
-            h2 = Math.imul(h2 ^ ch, 1597334677);
-        }
-        h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
-        h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-        h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
-        h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-
-        return 4294967296 * (2097151 & h2) + (h1 >>> 0);
-    },
-
     // Добавляет импорт в файл
 
     // Строим граф зависимостей по данным из указанной области
@@ -157,7 +144,7 @@ const packageAPI = {
         const imports = [];
         for (const i in graph) {
             const item = graph[i];
-            const source = await this.getSourceOfPackageID(location, item.id);
+            const source = await this.getSourceOfpackageId(location, item.id);
             if (source) {
                 const packageFolder = path.basename(path.dirname((path.resolve(source, 'dochub.yaml'))));
                 imports.unshift(`${packageFolder}${path.sep}dochub.yaml`);
@@ -235,16 +222,16 @@ const packageAPI = {
         }
     },
 
-    getTempFolderFor(url) {
-        const result = url
-            ? path.resolve(os.tmpdir(), 'archpkg', `${this.getHashOf(url)}`)
+    getTempFolderFor(packageId) {
+        const result = packageId
+            ? path.resolve(os.tmpdir(), 'archpkg', packageId)
             : path.resolve(os.tmpdir(), 'archpkg')
         this.tempFolders.push(result);
         return result;
     },
 
-    async downloadAndUnzipFrom(url) {
-        const tmpFolder = await this.getTempFolderFor(url);
+    async downloadAndUnzipFrom(url, packageId) {
+        const tmpFolder = await this.getTempFolderFor(packageId);
         return new Promise((success, reject) => {
             // Если уже скачивали ранее и кэш сохранился используем его
             if (fs.existsSync(tmpFolder)) {
@@ -252,6 +239,7 @@ const packageAPI = {
                 success(tmpFolder);
                 return;
             }
+            fs.mkdirSync(tmpFolder, { recursive: true });
             log.begin(`Downloading ${url}...`);
             let totalBytes = 0;
             let receivedBytes = 0;
@@ -273,7 +261,12 @@ const packageAPI = {
                     log.end('Done.');
                 })
                 .on('error', reject)
-                .pipe(unzipper.Extract({ path: tmpFolder }))
+                //.pipe(unzipper.Extract({ path: tmpFolder }))
+                .pipe(zlib.createGunzip())
+                .pipe(tar.x({
+                    strip: 1,
+                    C: tmpFolder
+                  }))
                 .on('error', reject)
                 .on('close', () => {
                     success(tmpFolder);
@@ -294,7 +287,7 @@ const packageAPI = {
     },
 
     // Возвращает ссылку на ресурс, где встречается идентификатор пакета
-    async getSourceOfPackageID(location, packageId) {
+    async getSourceOfpackageId(location, packageId) {
         const packages = await this.fetchInstalledPackages(location);
         return (packages.find((package) => package.metadata[packageId]) || {}).source;
     },
@@ -328,20 +321,20 @@ const packageAPI = {
         return this.installed[location] = result;
     },
 
-    async getPackageMetadata(location, packageID) {
+    async getPackageMetadata(location, packageId) {
         const packages = await this.fetchInstalledPackages(location);
         if (!packages) return null;
         const package = packages.find((item) => {
-            return item.metadata[packageID];
+            return item.metadata[packageId];
         });
         return package ? {
             source: package.source,
-            metadata: package.metadata[packageID]
+            metadata: package.metadata[packageId]
         } : null;
     },
 
-    async getInstalledPackageVersion(location, packageID) {
-        const metadata = await this.getPackageMetadata(location, packageID);
+    async getInstalledPackageVersion(location, packageId) {
+        const metadata = await this.getPackageMetadata(location, packageId);
         return metadata ? metadata.metadata?.version : null;
     },
 
@@ -360,7 +353,8 @@ const packageAPI = {
     },
 
     async installPackageTo(from, location, packageId) {
-        const folder = (await this.scanLocation(from))[0];
+        // const folder = (await this.scanLocation(from))[0];
+        const folder = from;
         if (!folder)
             throw new Error(`Structure of the pecked is incorrect in ${from}!`);
         !fs.existsSync(location) && fs.mkdirSync(location, { recursive: true });
@@ -392,30 +386,30 @@ const packageAPI = {
     },
 
     // Устанавливает пакет в указанный location (например ./_metamodels_)
-    async specificInstall(location, packageID, packageVer) {
-        log.begin(`Try to install [${packageID}@${packageVer || 'latest'}]`);
+    async specificInstall(location, packageId, packageVer) {
+        log.begin(`Try to install [${packageId}@${packageVer || 'latest'}]`);
         let result = false;
-        const currentVer = await packageAPI.getInstalledPackageVersion(location, packageID);
+        const currentVer = await packageAPI.getInstalledPackageVersion(location, packageId);
 
         if ((currentVer && !packageVer) || semver.satisfies(currentVer, packageVer)) {
-            log.success(`Package ${packageID} already installed.`);
-            const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(location, packageID)) || {};
+            log.success(`Package ${packageId} already installed.`);
+            const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(location, packageId)) || {};
             await packageAPI.resolveDependencies(metadata, location);
             result = currentVer;
         } else {
-            const sourcePackage = await repoAPI.fetchSourceOfPackage(packageVer ? `${packageID}@${packageVer}` : packageID);
+            const sourcePackage = await repoAPI.fetchSourceOfPackage(packageVer ? `${packageId}@${packageVer}` : packageId);
             result = sourcePackage.version;
 
             if (sourcePackage.source !== 'built-in') {
-                const tempFolder = await packageAPI.downloadAndUnzipFrom(sourcePackage.source);
+                const tempFolder = await packageAPI.downloadAndUnzipFrom(sourcePackage.source, packageId);
                 
                 if (currentVer) {
                     log.debug(`Current version ${currentVer} will be updated to ${packageVer}.`);
-                    await this.removePackageFrom(location, packageID);
+                    await this.removePackageFrom(location, packageId);
                 }
     
-                await packageAPI.installPackageTo(tempFolder, location, packageID);
-                const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(location, packageID)) || {};
+                await packageAPI.installPackageTo(tempFolder, location, packageId);
+                const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(location, packageId)) || {};
                 await packageAPI.resolveDependencies(metadata, location);
             }
         }
@@ -507,8 +501,8 @@ const commands = {
         const package = params[0];
         if (!package) throw new Error('Package name is required!');
         const packageStruct = package.split('@');
-        const packageID = packageStruct[0];
-        await packageAPI.removePackageFrom(locationCWD, packageID);
+        const packageId = packageStruct[0];
+        await packageAPI.removePackageFrom(locationCWD, packageId);
     },
 
     async install(params) {
@@ -517,12 +511,12 @@ const commands = {
             await packageAPI.allInstall(cwd);
         } else {
             const packageStruct = package.split('@');
-            const packageID = packageStruct[0];
+            const packageId = packageStruct[0];
             let packageVer = packageStruct[1];
-            packageVer = await packageAPI.specificInstall(path.resolve(cwd, '_metamodels_'), packageID, packageVer);
+            packageVer = await packageAPI.specificInstall(path.resolve(cwd, '_metamodels_'), packageId, packageVer);
             packageVer && commandFlags.save
                 && await packageAPI.addDependencyToDochubYaml(
-                    path.resolve(cwd, 'dochub.yaml'), packageID, packageVer
+                    path.resolve(cwd, 'dochub.yaml'), packageId, packageVer
                 );
         }
 
