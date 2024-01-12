@@ -14,11 +14,18 @@ const path = require('path');
 const SEP = path.sep;
 const yaml = require('yaml');
 
-const REPO_SERVER = new URL('http://localhost:3000');
+const REPO_SERVER = new URL(process.env.RACHPKG_REPO_SERVER || 'https://registry.dochub.info/');
 
 const cwd = process.cwd();
 const locationCWD = path.resolve(cwd, '_metamodels_');
 const importYamlName = 'packages.yaml';
+
+const DEFAULT_DOCHUB_YAML = 
+`
+$package:
+  ".":
+    version: 1.0.0
+`;
 
 
 const log = {
@@ -66,6 +73,8 @@ const packageAPI = {
     beginInstall() {
         this.installed = {};
         this.tempFolders = [];
+        log.debug(`Welcome to archpakg!`);
+        log.debug(`Using repo server [${REPO_SERVER}]`);
     },
 
     endInstall(isCleanCache = true) {
@@ -176,7 +185,9 @@ const packageAPI = {
     // Добавляет зависимость в пакет
     async addDependencyToDochubYaml(source, packageId, version, thisPackage) {
         log.begin('Append dependency...');
-        const content = fs.readFileSync(source, { encoding: 'utf8' });
+        const content = fs.existsSync(source) 
+            ? fs.readFileSync(source, { encoding: 'utf8' })
+            : DEFAULT_DOCHUB_YAML;
         const yamlFile = yaml.parseDocument(content);
         const data = yamlFile.toJS() || {};
         if (!data.$package) {
@@ -194,12 +205,12 @@ const packageAPI = {
             const yamlPackageData = yaml$package.get(thisPackage);
             let yamlDependencies = yamlPackageData.get('dependencies');
             if (!yamlDependencies) {
-                yamlDependencies = yamlFile.createPair('dependencies', {});
-                yaml$package.add(yamlDependencies);
+                yamlPackageData.add(yamlFile.createPair('dependencies', {}));
+                yamlDependencies = yamlPackageData.get('dependencies');
             }
-            if (!currentVersion)
+            if (!currentVersion) {
                 yamlDependencies.add(yamlFile.createPair(packageId, version));
-            else {
+            } else {
                 yamlDependencies.set(packageId, version);
             }
             fs.writeFileSync(source, String(yamlFile), { encoding: 'utf8', flag: 'w' });
