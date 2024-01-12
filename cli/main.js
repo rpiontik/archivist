@@ -75,7 +75,7 @@ const packageAPI = {
     beginInstall() {
         this.installed = {};
         this.tempFolders = [];
-        log.debug(`Welcome to archpakg!`);
+        log.debug(`Welcome to archpkg!`);
         log.debug(`Using repo server [${REPO_SERVER}]`);
     },
 
