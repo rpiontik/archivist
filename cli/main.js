@@ -5,7 +5,7 @@
 
 
 const request = require('request');
-// const unzipper = require('unzipper');
+const unzipper = require('unzipper');
 const tar = require("tar");
 var zlib = require('zlib');
 const semver = require('semver');
@@ -19,7 +19,7 @@ const yaml = require('yaml');
 const REPO_SERVER = new URL(process.env.RACHPKG_REPO_SERVER || 'https://registry.dochub.info/');
 
 const cwd = process.cwd();
-const locationCWD = path.resolve(cwd, '_metamodels_');
+const locationCWD = path.resolve(cwd, '_metamodel_');
 const importYamlName = 'packages.yaml';
 
 const DEFAULT_DOCHUB_YAML = 
@@ -75,7 +75,7 @@ const packageAPI = {
     beginInstall() {
         this.installed = {};
         this.tempFolders = [];
-        log.debug(`Welcome to archpkg!`);
+        log.debug(`Welcome to archpakg!`);
         log.debug(`Using repo server [${REPO_SERVER}]`);
     },
 
@@ -381,7 +381,7 @@ const packageAPI = {
     async allInstall(location) {
         log.begin(`installing dependencies...`);
         const metadata = await packageAPI.getPackageMetadataFromSource(location) || {};
-        await packageAPI.resolveDependencies(metadata, path.resolve(location, '_metamodels_'));
+        await packageAPI.resolveDependencies(metadata, path.resolve(location, '_metamodel_'));
         log.end(`Done.`);
     },
 
@@ -513,7 +513,7 @@ const commands = {
             const packageStruct = package.split('@');
             const packageId = packageStruct[0];
             let packageVer = packageStruct[1];
-            packageVer = await packageAPI.specificInstall(path.resolve(cwd, '_metamodels_'), packageId, packageVer);
+            packageVer = await packageAPI.specificInstall(path.resolve(cwd, '_metamodel_'), packageId, packageVer);
             packageVer && commandFlags.save
                 && await packageAPI.addDependencyToDochubYaml(
                     path.resolve(cwd, 'dochub.yaml'), packageId, packageVer
@@ -523,7 +523,7 @@ const commands = {
         const packagesYaml = await packageAPI.makeImportsYaml(locationCWD);
 
         if (commandFlags.save) {
-            await packageAPI.addImportToDochubYaml(path.resolve(cwd, 'dochub.yaml'), `_metamodels_${path.sep}packages.yaml`);
+            await packageAPI.addImportToDochubYaml(path.resolve(cwd, 'dochub.yaml'), `_metamodel_${path.sep}packages.yaml`);
         } else {
             log.success(`\nSuccess!\n\nIMPORTANT: You need to manually specify the import of the ${packagesYaml} file for your project.\nIf you want to add imports automatically, use the "-save" option.\n`);
         }
