@@ -17,13 +17,15 @@
 3. https://registry.dochub.info/ - реестр архитектурных пакетов (TBD);
 4. arckpkg - менеджер пакетов. 
 
-# Использование
+# Подготовка
 
 1. Установите [DocHub](https://github.com/RabotaRu/DocHub?tab=readme-ov-file#%D0%B1%D1%8B%D1%81%D1%82%D1%80%D1%8B%D0%B9-%D1%81%D1%82%D0%B0%D1%80%D1%82);
-2. Установите [npm](https://docs.npmjs.com/about-npm#getting-started) >= 10.2.3;
-3. Используйте команду npx archpkg ... для вызовы пакетного менеджера.
+2. Установите [nodejs >= 20.11.0 и npm >= 10.2.3 ](https://nodejs.org/en/download).
 
-Например (linux):
+# Использование
+
+Используйте команду npx archpkg <Параметры> для вызова пакетного менеджера. Например:
+
 ```console
 mkdir examples
 cd examples
