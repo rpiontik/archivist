@@ -572,7 +572,7 @@ const commandFlags = {
     cleancache: false,      // Признак очистки кэша после установки
     save: false,            // Признак необходимости автоматически подключить пакеты в dochub.yaml
     cachefolder: null,      // Корневой путь к кэшу
-    cert: SSL_CERT          // Путь к ssl сертификату
+    cert: SSL_CERT || null  // Путь к ssl сертификату
 };  
 
 const run = async () => {
@@ -594,7 +594,8 @@ const run = async () => {
     });
 
     packageAPI.beginInstall({
-        cacheFolder: commandFlags.cachefolder
+        cacheFolder: commandFlags.cachefolder,
+        cert: commandFlags.cert
     });
 
     const command = params[2];
