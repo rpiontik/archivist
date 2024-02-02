@@ -71,12 +71,15 @@ const log = {
 const packageAPI = {
     installed: {},
     tempFolders: [],
+    cacheFolder: null,
 
-    beginInstall() {
+    beginInstall(params) {
         this.installed = {};
         this.tempFolders = [];
+        this.cacheFolder = params.cacheFolder || path.resolve(os.homedir(), '.archpkg');
         log.debug(`Welcome to archpakg!`);
         log.debug(`Using repo server [${REPO_SERVER}]`);
+        log.debug(`Cache forlder [${this.cacheFolder}]`);
     },
 
     endInstall(isCleanCache = true) {
@@ -224,9 +227,9 @@ const packageAPI = {
 
     getTempFolderFor(packageId) {
         const result = packageId
-            ? path.resolve(os.tmpdir(), 'archpkg', packageId)
-            : path.resolve(os.tmpdir(), 'archpkg')
-        this.tempFolders.push(result);
+            ? path.resolve(this.cacheFolder, packageId)
+            : this.cacheFolder
+            packageId && this.tempFolders.push(result);
         return result;
     },
 
@@ -239,7 +242,11 @@ const packageAPI = {
                 success(tmpFolder);
                 return;
             }
-            fs.mkdirSync(tmpFolder, { recursive: true });
+            // Создаем временную папку для скачивания
+            const tryFolder = `${tmpFolder}__`;
+            fs.existsSync(tryFolder)  && fs.rmSync(tryFolder, { recursive: true });
+            fs.mkdirSync(tryFolder, { recursive: true });
+
             log.begin(`Downloading ${url}...`);
             let totalBytes = 0;
             let receivedBytes = 0;
@@ -265,10 +272,11 @@ const packageAPI = {
                 .pipe(zlib.createGunzip())
                 .pipe(tar.x({
                     strip: 1,
-                    C: tmpFolder
+                    C: tryFolder
                   }))
                 .on('error', reject)
                 .on('close', () => {
+                    fs.renameSync(tryFolder, tmpFolder);
                     success(tmpFolder);
                 });
         });
@@ -363,11 +371,14 @@ const packageAPI = {
         // await this.resolveDependencies(metadata, location);
         const destination = path.resolve(location, packageId);
         fs.rmSync(destination, { recursive: true, force: true });
+        fs.cpSync(source, destination, { recursive: true });
+        /*
         fs.renameSync(source, destination);
         const toRemoveFolder = this.tempFolders.find((folder) => {
             return source.startsWith(folder);
         });
         toRemoveFolder && fs.rmSync(toRemoveFolder, { recursive: true, force: true });
+        */
         (await this.fetchInstalledPackages(location)).push({
             source,
             metadata
@@ -436,17 +447,21 @@ const packageAPI = {
 
 const doRequest = function (url) {
     return new Promise(function (resolve, reject) {
-        request(url, function (error, response, body) {
-            if (!error && (response.statusCode >= 200) && response.statusCode < 300) {
-                resolve({
-                    statusCode: response.statusCode,
-                    response,
-                    body
-                });
-            } else {
-                reject(error || `Request to ${url} failed with code ${response.statusCode} and body [${body}]`);
-            }
-        });
+        try {
+            request(url, function (error, response, body) {
+                if (!error && (response.statusCode >= 200) && response.statusCode < 300) {
+                    resolve({
+                        statusCode: response.statusCode,
+                        response,
+                        body
+                    });
+                } else {
+                    reject(error || `Request to ${url} failed with code ${response.statusCode} and body [${body}]`);
+                }
+            });
+        } catch (error) {
+            reject(error || `Request to ${url} failed.`);
+        }
     });
 }
 
@@ -536,16 +551,17 @@ const commands = {
 };
 
 const commandFlags = {
-    nocleancache: false,    // Не очищать кэш скачанных пакетов после установки 
-    save: false             // Признак необходимости автоматически подключить пакеты в dochub.yaml
-};
+    cleancache: false,      // Признак очистки кэша после установки
+    save: false,            // Признак необходимости автоматически подключить пакеты в dochub.yaml
+    cachefolder: null       // Корневой путь к кэшу
+};  
 
 const run = async () => {
     const params = [];
 
     process.argv.map((arg) => {
         const struct = arg.split(':');
-        let key = struct[0];
+        let key = struct[0].toLocaleLowerCase();
         if (key.slice(0, 1) !== '-') {
             params.push(arg);
             return;
@@ -556,6 +572,10 @@ const run = async () => {
         } else {
             throw new Error(`Unknown command param [${arg}]`);
         }
+    });
+
+    packageAPI.beginInstall({
+        cacheFolder: commandFlags.cachefolder
     });
 
     const command = params[2];
@@ -570,10 +590,9 @@ const run = async () => {
 
 }
 
-packageAPI.beginInstall();
-
 run()
     .catch((error) => {
         log.error(error)
         process.exit(1)
-    }).finally(() => packageAPI.endInstall(!commandFlags.nocleancache));
+    })
+    .finally(() => packageAPI.endInstall(commandFlags.cleancache));
