@@ -587,7 +587,7 @@ const run = async () => {
         }
         key = key.slice(1);
         if (commandFlags[key] !== undefined) {
-            commandFlags[key] = struct[1] || true;
+            commandFlags[key] = struct.slice(1).join(':') || true;
         } else {
             throw new Error(`Unknown command param [${arg}]`);
         }
