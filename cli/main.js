@@ -502,9 +502,7 @@ const repoAPI = {
         if (!this.env.token) {
             log.begin('Try to get access to repo...');
             const response = await doRequest(
-                this.makeGetParams(
                     this.makeURL(this.routes.access.guestToken).toString()
-                )
             );
             const code = response && response.statusCode;
             if (response && code !== 201) {
@@ -517,9 +515,7 @@ const repoAPI = {
     },
     async fetchSourceOfPackage(package) {
         await this.getAccess();
-        const url = this.makeGetParams(
-            this.makeURL(`${this.routes.repo.download}${package}`).toString()
-        );
+        const url = this.makeURL(`${this.routes.repo.download}${package}`).toString();
         log.begin(`Try to get link of package...`);
         const response = await doRequest(url, {
             auth: {
@@ -577,7 +573,7 @@ const commandFlags = {
     cleancache: false,      // Признак очистки кэша после установки
     save: false,            // Признак необходимости автоматически подключить пакеты в dochub.yaml
     cachefolder: null,      // Корневой путь к кэшу
-    cert: SSL_CERT || null  // Путь к ssl сертификату
+    downloadcert: SSL_CERT || null  // Сертификат для скачивания
 };  
 
 const run = async () => {
@@ -600,7 +596,7 @@ const run = async () => {
 
     packageAPI.beginInstall({
         cacheFolder: commandFlags.cachefolder,
-        cert: commandFlags.cert
+        cert: commandFlags.downloadcert
     });
 
     const command = params[2];
