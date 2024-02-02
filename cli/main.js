@@ -255,7 +255,7 @@ const packageAPI = {
             log.begin(`Downloading ${url}...`);
             let totalBytes = 0;
             let receivedBytes = 0;
-            request(url)
+            request(repoAPI.makeGetParams(url))
                 .on('response', (data) => {
                     totalBytes = parseInt(data.headers['content-length']);
                     if (data.statusCode === 404)
@@ -487,12 +487,11 @@ const repoAPI = {
     makeURL(route) {
         return new URL(route, REPO_SERVER);
     },
-    makeGetRequest(route) {
-        const url = this.makeURL(route);
+    makeGetParams(url) {
         if (this.env.cert) {
             return {
                 method: "GET",
-                uri: url.toString(),
+                uri: url,
                 agentOptions: {
                     ca: this.env.cert
                 }
@@ -502,7 +501,11 @@ const repoAPI = {
     async getAccess() {
         if (!this.env.token) {
             log.begin('Try to get access to repo...');
-            const response = await doRequest(this.makeURL(this.routes.access.guestToken).toString());
+            const response = await doRequest(
+                this.makeGetParams(
+                    this.makeURL(this.routes.access.guestToken).toString()
+                )
+            );
             const code = response && response.statusCode;
             if (response && code !== 201) {
                 throw new Error(`Error server response with code ${code} and body [${response.body}]`);
@@ -514,7 +517,9 @@ const repoAPI = {
     },
     async fetchSourceOfPackage(package) {
         await this.getAccess();
-        const url = this.makeURL(`${this.routes.repo.download}${package}`).toString();
+        const url = this.makeGetParams(
+            this.makeURL(`${this.routes.repo.download}${package}`).toString()
+        );
         log.begin(`Try to get link of package...`);
         const response = await doRequest(url, {
             auth: {
