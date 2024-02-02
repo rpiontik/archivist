@@ -17,6 +17,7 @@ const SEP = path.sep;
 const yaml = require('yaml');
 
 const REPO_SERVER = new URL(process.env.RACHPKG_REPO_SERVER || 'https://registry.dochub.info/');
+const SSL_CERT = process.env.RACHPKG_SSL_CERT;
 
 const cwd = process.cwd();
 const locationCWD = path.resolve(cwd, '_metamodel_');
@@ -80,6 +81,10 @@ const packageAPI = {
         log.debug(`Welcome to archpakg!`);
         log.debug(`Using repo server [${REPO_SERVER}]`);
         log.debug(`Cache forlder [${this.cacheFolder}]`);
+        if (params.cert) {
+            log.debug(`Will use sslcert [${params.cert}]`);
+            repoAPI.env.cert = fs.readFileSync(params.cert);
+        }
     },
 
     endInstall(isCleanCache = true) {
@@ -468,7 +473,8 @@ const doRequest = function (url) {
 
 const repoAPI = {
     env: {
-        token: null // Токен авторизации
+        token: null, // Токен авторизации
+        cert: null   // Токен авторизации
     },
     routes: {
         access: {
@@ -480,6 +486,18 @@ const repoAPI = {
     },
     makeURL(route) {
         return new URL(route, REPO_SERVER);
+    },
+    makeGetRequest(route) {
+        const url = this.makeURL(route);
+        if (this.env.cert) {
+            return {
+                method: "GET",
+                uri: url.toString(),
+                agentOptions: {
+                    ca: this.env.cert
+                }
+            };
+        } else return url;
     },
     async getAccess() {
         if (!this.env.token) {
@@ -553,7 +571,8 @@ const commands = {
 const commandFlags = {
     cleancache: false,      // Признак очистки кэша после установки
     save: false,            // Признак необходимости автоматически подключить пакеты в dochub.yaml
-    cachefolder: null       // Корневой путь к кэшу
+    cachefolder: null,      // Корневой путь к кэшу
+    cert: SSL_CERT          // Путь к ssl сертификату
 };  
 
 const run = async () => {
