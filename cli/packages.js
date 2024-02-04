@@ -2,8 +2,6 @@
 // log - интерфейс для вывода логов
 const yaml = require('yaml');
 const semver = require('semver');
-const zlib = require('zlib');
-const tar = require("tar");
 
 const importYamlName = 'packages.yaml';
 
@@ -14,25 +12,24 @@ $package:
     version: 1.0.0
 `;
 
-module.exports = function (log, path, os, fs, repoAPI, request) {
+module.exports = function (context) {
+    const log = context.log;
+    const path = context.path;
+    const os = context.os;
+    const fs = context.fs;
+    const repoAPI = context.repo;
+    const request = context.request;
+
     const SEP = path.sep;
 
     const packageAPI = {
         installed: {},
         tempFolders: [],
-        cacheFolder: null,
+        cacheFolder: context.env.cacheFolder,
 
-        beginInstall(params) {
+        beginInstall() {
             this.installed = {};
             this.tempFolders = [];
-            this.cacheFolder = params.cacheFolder || path.resolve(os.homedir(), '.archpkg');
-            log.debug(`Welcome to archpakg!`);
-            log.debug(`Using repo server [${repoAPI.env.repoServer}]`);
-            log.debug(`Cache forlder [${this.cacheFolder}]`);
-            if (params.cert) {
-                log.debug(`Will use sslcert [${params.cert}]`);
-                repoAPI.env.cert = fs.readFileSync(params.cert);
-            }
         },
 
         endInstall(isCleanCache = true) {
@@ -44,8 +41,6 @@ module.exports = function (log, path, os, fs, repoAPI, request) {
             fs.rmSync(this.getTempFolderFor(), { recursive: true, force: true });
             log.begin('Done.');
         },
-
-        // Добавляет импорт в файл
 
         // Строим граф зависимостей по данным из указанной области
         async buildDependenciesGraph(location) {
@@ -195,43 +190,9 @@ module.exports = function (log, path, os, fs, repoAPI, request) {
                     success(tmpFolder);
                     return;
                 }
-                // Создаем временную папку для скачивания
-                const tryFolder = `${tmpFolder}__`;
-                fs.existsSync(tryFolder) && fs.rmSync(tryFolder, { recursive: true });
-                fs.mkdirSync(tryFolder, { recursive: true });
-
-                log.begin(`Downloading ${url}...`);
-                let totalBytes = 0;
-                let receivedBytes = 0;
-                request(repoAPI.makeGetParams(url))
-                    .on('response', (data) => {
-                        totalBytes = parseInt(data.headers['content-length']);
-                        if (data.statusCode === 404)
-                            reject(`Package unavailable on URL ${url}`);
-                        if ((data.statusCode < 200) || data.statusCode > 300)
-                            reject(`Error of downloading package from [${url}]. Response with code ${data.statusCode}.`);
-                        log.progressBegin();
-                    })
-                    .on('data', (chunk) => {
-                        receivedBytes += chunk.length;
-                        log.progress(receivedBytes, totalBytes);
-                    })
-                    .on('end', (chunk) => {
-                        log.progressEnd();
-                        log.end('Done.');
-                    })
-                    .on('error', reject)
-                    //.pipe(unzipper.Extract({ path: tmpFolder }))
-                    .pipe(zlib.createGunzip())
-                    .pipe(tar.x({
-                        strip: 1,
-                        C: tryFolder
-                    }))
-                    .on('error', reject)
-                    .on('close', () => {
-                        fs.renameSync(tryFolder, tmpFolder);
-                        success(tmpFolder);
-                    });
+                context.downloader.downloadAndUnzip(url, tmpFolder)
+                    .then(success)
+                    .catch(reject)
             });
         },
 

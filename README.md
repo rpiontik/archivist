@@ -130,6 +130,11 @@ npx archpkg remove dochub-examples
 npx archpkg clean
 ```
 
+# Переменные среды
+
+* **ARCHPKG_CACHE_FOLDER** - путь к директории кэширования. По умолчанию: <ползовательская директория>/.archpkg
+* **ARCHPKG_REPO_SERVER** - сервер репозитория. По умолчанию: https://registry.dochub.info/
+* **ARCHPKG_DOWNLOAD_CERT** - пусть к ssl-сертификату для скачивания пакетов. По умолчанию не установлено.
 
 # Лицензия 
 

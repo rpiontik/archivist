@@ -1,7 +1,10 @@
 
 const REPO_SERVER = new URL(process.env.RACHPKG_REPO_SERVER || 'https://registry.dochub.info/');
 
-module.exports = function (log, request) {
+module.exports = function (context) {
+    const log = context.log;
+    const request = context.request;
+
     const doRequest = function (url) {
         return new Promise(function (resolve, reject) {
             try {
@@ -39,17 +42,6 @@ module.exports = function (log, request) {
         },
         makeURL(route) {
             return new URL(route, REPO_SERVER);
-        },
-        makeGetParams(url) {
-            if (this.env.cert) {
-                return {
-                    method: "GET",
-                    uri: url,
-                    agentOptions: {
-                        ca: this.env.cert
-                    }
-                };
-            } else return url;
         },
         async getAccess() {
             if (!this.env.token) {
