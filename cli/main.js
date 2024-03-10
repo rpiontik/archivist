@@ -1,14 +1,10 @@
 #!/usr/bin/env node
 
 // https://davidlozzi.com/2021/03/16/style-up-your-console-logs/
-// Если часть пакетов поставилась, то их зависимости не разрешаются при установке
 
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-
-
-const SSL_CERT = process.env.RACHPKG_SSL_CERT;
 
 const cwd = process.cwd();
 const locationCWD = path.resolve(cwd, '_metamodel_');
@@ -18,7 +14,7 @@ const log = require('./log')();
 // Формируем контекст работы пакетного менеджера
 const context = {
     env : {                         // Перемнные среды для archpkg
-        cacheFolder:                // Пространство для создания кэшей
+        cacheFolder:                // Директория для создания кэшей
             process.env.ARCHPKG_CACHE_FOLDER
             || path.resolve(os.homedir(), '.archpkg'),
         repoServer: new URL(        // Адрес сервера индекса пакетов
@@ -27,7 +23,7 @@ const context = {
         downloadCert:               // Ссылка на SSL сертификат для скачивания 
             process.env.ARCHPKG_DOWNLOAD_CERT || null
     },
-    request: require('request'),    // Реализация запросов web-запросов 
+    request: require('request'),    // Реализация web-запросов 
     log: require('./log')(),        // Реализация системы логирования
     path,                           // Работа с путями
     fs,                             // Функции файловой системы
@@ -35,6 +31,7 @@ const context = {
     repo: null,                     // Функции archpkg репозитория
     manager: null                   // Функции пакетного менеджера    
 };
+
 context.downloader = require('./downloader')(context);
 context.repo = require('./repo')(context);
 context.manager = require('./packages')(context);
@@ -77,11 +74,12 @@ const commands = {
     }
 };
 
+// Параметры командной строки
 const commandFlags = {
-    cleancache: false,      // Признак очистки кэша после установки
-    save: false,            // Признак необходимости автоматически подключить пакеты в dochub.yaml
-    cachefolder: null,      // Корневой путь к кэшу
-    downloadcert: SSL_CERT || null  // Сертификат для скачивания
+    cleancache: false,          // Признак очистки кэша после установки
+    save: false,                // Признак необходимости автоматически подключить пакеты в dochub.yaml
+    cachefolder: null,          // Корневой путь к кэшу
+    downloadcert: null          // Сертификат для скачивания
 };  
 
 const run = async () => {
