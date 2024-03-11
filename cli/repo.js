@@ -100,15 +100,21 @@ module.exports = function (context) {
                     source: 'built-in'
                 }    
             }
-            log.debug(`Owner: ${content.owner}, Repo: ${content.repo}`);
-            const releases = await this.fetchReleasesByOwnerRepoVer(content.owner, content.repo, package.split('@')[1]);
-            if (!releases || !releases.length)
-                throw new Error(`No found any release for ${$package}!`);
-            const release = releases.pop();
             const result = {
-                package,
-                'source': `https://codeload.github.com/${content.owner}/${content.repo}/tar.gz/refs/tags/${release.tag_name}`
+                package
             };
+
+            if (content.type==='github') {
+                log.debug(`GitHub location Owner: ${content.owner}, Repo: ${content.repo}`);
+                const releases = await this.fetchReleasesByOwnerRepoVer(content.owner, content.repo, package.split('@')[1]);
+                if (!releases || !releases.length)
+                    throw new Error(`No found any release for ${$package}!`);
+                const release = releases.pop();
+                result.source = `https://codeload.github.com/${content.owner}/${content.repo}/tar.gz/refs/tags/${release.tag_name}`
+            } else if (content.type==='direct') {
+                log.debug('Direct location');
+                result.source = content.source;
+            }
             log.end(`Link is found: ${result.source}`); 
             return result;
         },
