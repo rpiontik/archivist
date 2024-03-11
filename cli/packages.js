@@ -295,7 +295,7 @@ module.exports = function (context) {
             return destination;
         },
 
-        // Устанавливает все зависимости для конкретного пакета
+        // Устанавливает все зависимости для конкретного пакетаsem
         async allInstall(location) {
             log.begin(`installing dependencies...`);
             const metadata = await packageAPI.getPackageMetadataFromSource(location) || {};
@@ -303,6 +303,22 @@ module.exports = function (context) {
             log.end(`Done.`);
         },
 
+        // Проверяем можно ли обновить пакет к указанной версии 
+        async isAvailableToUpdate(packageId, toVersion) {
+            const result = [];
+            for(const location in this.installed) {
+                this.installed[location].map((package) => {
+                    for (const pkgID in package.metadata || {}) {
+                        const metadata = package.metadata[pkgID];
+                        const reqVer = (metadata.dependencies || {})[packageId];
+                        if (reqVer && !semver.satisfies(toVersion, reqVer) ) {
+                            result.push(`Conflict version of dependencies. For ${packageId} required ${toVersion} version, but packege ${pkgID} required ${reqVer} version.`);
+                        }
+                    }
+                });
+            }
+            return result.length ? result : null;
+        },
         // Устанавливает пакет в указанный location (например ./_metamodels_)
         async specificInstall(location, packageId, packageVer) {
             log.begin(`Try to install [${packageId}@${packageVer || 'latest'}]`);
@@ -319,13 +335,17 @@ module.exports = function (context) {
                 result = sourcePackage.version;
 
                 if (sourcePackage.source !== 'built-in') {
-                    const tempFolder = await packageAPI.downloadAndUnzipFrom(sourcePackage.source, packageId);
-
                     if (currentVer) {
+                        const conflicts = await this.isAvailableToUpdate(packageId, packageVer);
+                        if (conflicts) {
+                            conflicts.map(message => log.error(message));
+                            throw new Error('Can not resolve dependencies!');
+                        }
                         log.debug(`Current version ${currentVer} will be updated to ${packageVer}.`);
                         await this.removePackageFrom(location, packageId);
                     }
 
+                    const tempFolder = await packageAPI.downloadAndUnzipFrom(sourcePackage.source, packageId);
                     await packageAPI.installPackageTo(tempFolder, location, packageId);
                     const metadata = await packageAPI.getPackageMetadataFromSource(path.resolve(location, packageId)) || {};
                     await packageAPI.resolveDependencies(metadata, location);

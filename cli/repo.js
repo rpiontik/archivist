@@ -106,26 +106,11 @@ module.exports = function (context) {
                 throw new Error(`No found any release for ${$package}!`);
             const release = releases.pop();
             const result = {
+                package,
                 'source': `https://codeload.github.com/${content.owner}/${content.repo}/tar.gz/refs/tags/${release.tag_name}`
             };
             log.end(`Link is found: ${result.source}`); 
             return result;
-        },
-        async fetchSourceOfPackage_(package) {
-            await this.getAccess();
-            const url = this.makeURL(`${this.routes.repo.download}${package}`).toString();
-            log.begin(`Try to get link of package...`);
-            const response = await doRequest(url, {
-                auth: {
-                    bearer: this.env.token
-                }
-            });
-            if (response.statusCode !== 200)
-                throw new Error(`Error of resolve the download link of package ${package}. Response code ${response.statusCode} with body [${response.body}]`);
-            const content = JSON.parse(response.body);
-            log.end(`Link is found: ${content.source}`);
-            process.exit(0);
-            return content;
         },
     };
 }
