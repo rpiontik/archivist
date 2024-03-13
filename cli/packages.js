@@ -24,24 +24,28 @@ module.exports = function (context) {
 
     const packageAPI = {
         installed: {},
-        tempFolders: [],
         cacheFolder: context.env.cacheFolder,
 
         beginInstall() {
             this.installed = {};
-            this.tempFolders = [];
         },
 
         endInstall(isCleanCache = true) {
             isCleanCache && this.cleanCache();
         },
 
+        // Полная очистка кэша загрузки
         cleanCache() {
             log.begin('Clean cache...');
-            fs.rmSync(this.getTempFolderFor(), { recursive: true, force: true });
+            fs.rmSync(this.getCacheFolderFor(), { recursive: true, force: true });
             log.begin('Done.');
         },
-
+        // Очистка кэша для конкретного пакета
+        cleanCacheForPackege(packageId) {
+            log.begin(`Clean cache for ${packageId}...`);
+            fs.rmSync(this.getCacheFolderFor(packageId), { recursive: true, force: true });
+            log.begin('Done.');
+        },
         // Строим граф зависимостей по данным из указанной области
         async buildDependenciesGraph(location) {
             log.begin('Building dependencies graph...');
@@ -173,16 +177,15 @@ module.exports = function (context) {
             }
         },
 
-        getTempFolderFor(packageId) {
+        getCacheFolderFor(packageId) {
             const result = packageId
                 ? path.resolve(this.cacheFolder, packageId)
                 : this.cacheFolder
-            packageId && this.tempFolders.push(result);
             return result;
         },
 
         async downloadAndUnzipFrom(url, packageId) {
-            const tmpFolder = await this.getTempFolderFor(packageId);
+            const tmpFolder = await this.getCacheFolderFor(packageId);
             return new Promise((success, reject) => {
                 // Если уже скачивали ранее и кэш сохранился используем его
                 if (fs.existsSync(tmpFolder)) {
@@ -342,6 +345,7 @@ module.exports = function (context) {
                             throw new Error('Can not resolve dependencies!');
                         }
                         log.debug(`Current version ${currentVer} will be updated to ${packageVer}.`);
+                        this.cleanCacheForPackege(packageId);
                         await this.removePackageFrom(location, packageId);
                     }
 
