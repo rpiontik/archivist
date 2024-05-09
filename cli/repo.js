@@ -32,8 +32,7 @@ module.exports = function (context) {
                 guestToken: '/session/guest/token'
             },
             repo: {
-                download: '/repo/download/',
-                metadata: '/repo/metadata/'
+                metadata: '/repo/v2/metadata/'
             }
         },
         makeURL(route) {
@@ -54,34 +53,6 @@ module.exports = function (context) {
                 log.end(`Access token provided: ${content.token}`);
             }
         },
-        async fetchReleasesByOwnerRepoVer(owner, repo, version) {
-            const fetchURL = this.makeURL(`https://api.github.com/repos/${owner}/${repo}/releases`).toString();
-            log.begin(`Try to get fetch releases from ${fetchURL} for version [${version ? version : 'any'}]...`);
-            const response = await doRequest({
-                url: fetchURL,
-                headers: {
-                    'User-Agent': 'archpkg',
-                    'Accept': 'application/vnd.github+json',
-                    'X-GitHub-Api-Version': '2022-11-28'
-                }
-            });
-            const content = JSON.parse(response.body);
-            const versions = content.filter((item) => {
-                return !version || semver.satisfies(item.tag_name, version) || semver.satisfies(item.tag_name.slice(1), version);
-            }).sort((v1, v2) => {
-                const strvToNumber = function (rel) {
-                    const struct = rel.tag_name.toString().replace('v', '').split('.');
-                    const result = 
-                        Number.parseInt(struct[0] || '0') * 1000000000 
-                        + Number.parseInt(struct[1] || '0') * 1000000
-                        + Number.parseInt(struct[2] || '0') * 1000;
-                    return result;
-                };
-                return strvToNumber(v1) - strvToNumber(v2);
-            });
-            log.end(`Found versions: ${versions.map(item => item.tag_name).join(', ')}.`);
-            return versions;
-        },
         async fetchSourceOfPackage(package) {
             await this.getAccess();
             const url = this.makeURL(`${this.routes.repo.metadata}${package}`).toString();
@@ -94,29 +65,15 @@ module.exports = function (context) {
             if (response.statusCode !== 200)
                 throw new Error(`Error of resolve the download link of package ${package}. Response code ${response.statusCode} with body [${response.body}]`);
             const content = JSON.parse(response.body);
-            if (content.repo === '$built-in$') {
+            if (content.type === 'built-in') {
                 log.end(`The package is built-in.`);
                 return {
                     source: 'built-in'
                 }    
+            } else {
+                log.end(`Link is found: ${content.source}`); 
+                return content;
             }
-            const result = {
-                package
-            };
-
-            if (content.type==='github') {
-                log.debug(`GitHub location Owner: ${content.owner}, Repo: ${content.repo}`);
-                const releases = await this.fetchReleasesByOwnerRepoVer(content.owner, content.repo, package.split('@')[1]);
-                if (!releases || !releases.length)
-                    throw new Error(`No found any release for ${$package}!`);
-                const release = releases.pop();
-                result.source = `https://codeload.github.com/${content.owner}/${content.repo}/tar.gz/refs/tags/${release.tag_name}`
-            } else if (content.type==='direct') {
-                log.debug('Direct location');
-                result.source = content.source;
-            }
-            log.end(`Link is found: ${result.source}`); 
-            return result;
         },
     };
 }
