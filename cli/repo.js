@@ -29,10 +29,10 @@ module.exports = function (context) {
         },
         routes: {
             access: {
-                guestToken: '/session/guest/token'
+                guestToken: 'api/session/guest/token'
             },
             repo: {
-                metadata: '/repo/v2/metadata/'
+                metadata: 'api/repo/v2/metadata/'
             }
         },
         makeURL(route) {
