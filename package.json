@@ -1,13 +1,10 @@
 {
   "name": "archpkg",
-  "version": "1.0.34",
+  "version": "2.0.1",
   "description": "The DocHub metamodel repository manager.",
   "private": false,
   "main": "index.js",
   "module": "index.js",
-  "files": [
-    "."
-  ],
   "homepage": "https://dochub.info",
   "bin": {
     "archpkg": "cli/main.js"
@@ -21,7 +18,7 @@
     "DocHub",
     "AaaC",
     "Metamodels",
-    "Achitecture"
+    "Architecture"
   ],
   "author": "R.Piontik",
   "license": "GPLV3",
