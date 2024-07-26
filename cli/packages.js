@@ -18,7 +18,8 @@ module.exports = function (context) {
     const os = context.os;
     const fs = context.fs;
     const repoAPI = context.repo;
-    const request = context.request;
+    //const request = context.request;
+    const axios = context.axios;
 
     const SEP = path.sep;
 
