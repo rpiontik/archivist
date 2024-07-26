@@ -6,6 +6,10 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
+const { default: axios } = require('axios');
+const https = require('https');
+const agent = new https.Agent({ rejectUnauthorized: false });
+
 const cwd = process.cwd();
 const locationCWD = path.resolve(cwd, '_metamodel_');
 
@@ -23,7 +27,7 @@ const context = {
         downloadCert:               // Ссылка на SSL сертификат для скачивания 
             process.env.ARCHPKG_DOWNLOAD_CERT || null
     },
-    request: require('request'),    // Реализация web-запросов 
+    axios: axios.create({httpsAgent:agent}),        // Реализация web-запросов
     log: require('./log')(),        // Реализация системы логирования
     path,                           // Работа с путями
     fs,                             // Функции файловой системы

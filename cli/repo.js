@@ -1,24 +1,23 @@
 const semver = require('semver');
+const { re } = require('semver/internal/re');
 
 module.exports = function (context) {
     const log = context.log;
 
     const doRequest = function (url) {
-        return new Promise(function (resolve, reject) {
-            try {
-                context.request(url, function (error, response, body) {
-                    if (!error && (response.statusCode >= 200) && response.statusCode < 300) {
-                        resolve({
-                            statusCode: response.statusCode,
-                            response,
-                            body
-                        });
-                    } else {
-                        reject(error || `Request to ${url} failed with code ${response.statusCode} and body [${body}]`);
-                    }
-                });
-            } catch (error) {
-                reject(error || `Request to ${url} failed.`);
+        return context.axios.get(url)
+        .then((response) => {
+            return {
+                statusCode: response.status,
+                response,
+                body: response.data
+            };
+        })
+        .catch((error) => {
+            if (error.response) {
+                throw new Error(`Request to ${url} failed with code ${error.response.status} and body [${error.response.data}]`);
+            } else {
+                throw error;
             }
         });
     }
@@ -42,13 +41,13 @@ module.exports = function (context) {
             if (!this.env.token) {
                 log.begin('Try to get access to repo...');
                 const response = await doRequest(
-                        this.makeURL(this.routes.access.guestToken).toString()
+                    this.makeURL(this.routes.access.guestToken).toString()
                 );
                 const code = response && response.statusCode;
                 if (response && code !== 201) {
                     throw new Error(`Error server response with code ${code} and body [${response.body}]`);
                 }
-                const content = JSON.parse(response.body);
+                const content = response.body; //JSON.parse(response.body);
                 this.env.token = content.token;
                 log.end(`Access token provided: ${content.token}`);
             }
@@ -64,7 +63,7 @@ module.exports = function (context) {
             });
             if (response.statusCode !== 200)
                 throw new Error(`Error of resolve the download link of package ${package}. Response code ${response.statusCode} with body [${response.body}]`);
-            const content = JSON.parse(response.body);
+            const content = response.body; //JSON.parse(response.body);
             if (content.type === 'built-in') {
                 log.end(`The package is built-in.`);
                 return {
